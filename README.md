@@ -1,2 +1,2 @@
-# random_forest
-Random Forest algorithm implemented in Python.
+# 随机森林
+随即森林的Python实践，并在数据集上完成测试。
