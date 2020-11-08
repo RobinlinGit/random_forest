@@ -10,14 +10,15 @@
 '''
 # %%
 import numpy as np
-from numpy.core.fromnumeric import sort
 import pandas as pd
 from time import time
+from tqdm import tqdm
+
+from utils import log
 
 
 # %%
-
-def categery_preprocess(column, undefine):
+def categery_preprocess(column):
     """map the feature data to [-1, 0, ..., M-1] int categories.
     Only for categorical data.
 
@@ -30,23 +31,20 @@ def categery_preprocess(column, undefine):
         int2feature (dict): {int: origin_feature_name}.
         feature2int (dict): {origin feature name: int}
     """
-    feature2int = {undefine: -1}
+    feature2int = {}
     labels = set(column)
-    if undefine in labels:
-        labels.remove(undefine)
     feature2int.update({label: i for i, label in enumerate(labels)})
     data = np.vectorize(feature2int.__getitem__)(column)
     int2feature = {v: k for k, v in feature2int.items()}
     return data, int2feature, feature2int
 
 
-def numerical_preprocess(column, undefine, y):
+def numerical_preprocess(column, y):
     """generate split point and map undefine to -1.
 
     Args:
         column (np.ndarray): numerical column [n_samples, 1].
-        undefine (object): missing value expression in data.
-        y (np.ndarray): labels.
+        y (np.ndarray): int labels.
     Returns:
         data (np.ndarray): [n samples, 1], map float x to int label, eg:
             x = 1.0, 2th interval is (0, 1.2], so we map x to 2,
@@ -55,14 +53,7 @@ def numerical_preprocess(column, undefine, y):
     """
     data = np.zeros(column.shape, dtype=np.uint8)
     origin_data = column
-    undefine_idx = np.where(column == undefine)[0]
-    y2 = y[column != undefine]
-    column = column[column != undefine]
-
-    # map y to int label
-    y_values = set(y2)
-    ylabel2int = {l: i for i, l in enumerate(y_values)}
-    y2 = np.vectorize(ylabel2int.__getitem__)(y2)
+    y2 = y
 
     # sort x, find potential split point
 
@@ -71,15 +62,15 @@ def numerical_preprocess(column, undefine, y):
     y2 = y2[sort_idx]
     diff_x = np.diff(column)
     idxes = np.where(diff_x != 0)[0] + 1
-    idxes = [0] + idxes.tolist() + [-2]
+    idxes = [0] + idxes.tolist() + [None]
 
     # sort y array with the same x value
     for i in range(len(idxes)-1):
-        x = column[idxes[i]: idxes[i+1] + 1]
-        ys = y2[idxes[i]: idxes[i+1] + 1]
+        x = column[idxes[i]: idxes[i+1]]
+        ys = y2[idxes[i]: idxes[i+1]]
         sort_idx = np.argsort(ys)
-        column[idxes[i]: idxes[i+1] + 1] = x[sort_idx]
-        y2[idxes[i]: idxes[i+1] + 1] = ys[sort_idx]
+        column[idxes[i]: idxes[i+1]] = x[sort_idx]
+        y2[idxes[i]: idxes[i+1]] = ys[sort_idx]
 
     # find split points
     diff_y = np.diff(y2)
@@ -89,30 +80,61 @@ def numerical_preprocess(column, undefine, y):
     split_x = [(column[i] + column[i-1]) / 2 for i in split_idx]
     split_x = sorted(split_x)
     iter_x = [-np.inf] + split_x
-    print(iter_x)
     # map x to int label
     for i in range(len(iter_x) - 1):
         select_idx = np.logical_and(origin_data > iter_x[i], origin_data <= iter_x[i + 1])
         data[select_idx] = i
-        print(i, np.sum(select_idx))
-    print(iter_x[-1])
     data[origin_data > iter_x[-1]] = i + 1
-    data[undefine_idx] = -1
+    # print(f"data {data}")
+    # print(set(data))
+    # print(f"split x {split_x}")
     return data, split_x
         
 
-# %%
-df = pd.read_csv("bank-additional-full.csv")
-print(df.dtypes)
+def build_inverted_index(data):
+    """build a value: [idx0, idx1] inverted table.
 
-# %%
-column = df['emp.var.rate'].values
-print(set(column))
-y = df['y'].values
+    Args:
+        data (list or np.ndarray).
+    Returns:
+        table (dict).
+    """
+    values = set(data)
+    print(len(values))
+    table = {v: [] for v in values}
+    for i, v in enumerate(data):
+        table[v].append(i)
+    return table
 
-# %%
-x, split_x = numerical_preprocess(column, 999, y)
-print(x, split_x)
-# %%
 
-# %%
+@log
+def preprocess(df, y, feature_types):
+    """preprocess data into a reverted index dict for efficient split.
+
+    Args:
+        df (pandas.DataFrame): n samples x n_features.
+        y (np.array): labels, n_samples x 1.
+        feature_type (dict): key is feature name,
+            value is in ["numerical", "categorical"].
+    Returns:
+        data (dict): {feat_name: {feat_value: [idx]}}.
+        label_map (dict): {feat_name: [x0, x1, ...]} for numerical,
+            {feat_name: {"int2feat": v, "feat2int": v}} for categorical.
+    """
+    for _, v in feature_types.items():
+        assert v in ["numerical", "categorical"]
+    data = {}
+    label_map = {}
+    for feat_name, feat_type in feature_types.items():
+        column = df[feat_name].values
+        # numerical process
+        if feat_type == "numerical":
+            column, split_x = numerical_preprocess(column, y)
+            label_map[feat_name] = split_x
+        # categorical process
+        else:
+            column, int2feat, feat2int = categery_preprocess(column)
+            label_map[feat_name] = {"int2feat": int2feat, "feat2int": feat2int}
+
+        data[feat_name] = build_inverted_index(column)
+    return data, label_map
