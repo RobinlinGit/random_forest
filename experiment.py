@@ -1,25 +1,26 @@
 # %%
 import numpy as np
 import pandas as pd
-
+from preprocess import preprocess
+from tree import CartTreeNode
 # %%
 
 df = pd.read_csv("./bank-additional-full.csv")
+y = df['y'].values
+y = np.vectorize({"yes": 1, "no": 0}.__getitem__)(y)
+df = df.drop(columns=["y"])
+feat_types = {}
+for col in df:
+    feat_types[col] = "categorical" if df[col].dtype == object else "numerical"
+
 # %%
 print(df.dtypes)
+
 # %%
-print(set(df["duration"]))
+data, feat_names, feat_map = preprocess(df, y, feat_types)
 # %%
-data = df["pdays"].values
-print(data.dtype)
+
 # %%
-print(data[:10])
-# %%
-print(set(data))
-# %%
-print(data)
-y = df["y"].values
-print(y[:10])
-# %%
-print(y.names)
+n = CartTreeNode(0, 10, 20, 2)
+n.fit(data, y, feat_names, feat_map, feat_types)
 # %%

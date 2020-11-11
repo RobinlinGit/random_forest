@@ -9,10 +9,17 @@
 @Desc    :   CART tree implement
 '''
 import numpy as np
+import math
+import random
 from collections import Counter
 from functools import reduce
 from preprocess import preprocess
-from utils import gini, gini_score
+from utils import (
+    gini,
+    gini_score,
+    filter_data,
+    random_feat
+)
 
 
 
@@ -45,7 +52,6 @@ class CartTree(object):
         self.max_depth = max_depth
         self.min_samples = min_samples
 
-
     def fit(self, X, y, feat_type):
         """train
 
@@ -54,8 +60,7 @@ class CartTree(object):
             y (np.ndarray).
             feat_type (dict): {feat_name: numerical or categorical}
         """
-        self.data, self.feat_map = preprocess(X, y, feat_type)
-
+        self.data, self.feat_names, self.feat_map = preprocess(X, y, feat_type)
 
 
 class CartTreeNode(object):
@@ -63,7 +68,7 @@ class CartTreeNode(object):
 
     Attributes:
         depth (int): this node's depth.
-        left, right (CartTreeNode): child node.
+        true_t, false_t (CartTreeNode): child node.
         max_depth (int): max depth for tree.
         min_samples (int): if samples < min_samples, regard node as leaf.
         x0 (int or float): condition right value.
@@ -81,174 +86,93 @@ class CartTreeNode(object):
         self.data_type = None
         self.x0 = None
         self.feat_name = None
+        self.is_leaf = False
     
-    def fit(self, data, y, feat_map, feat_type):
+    def fit(self, data, y, feats, feat_map, feat_type):
         """
 
         Args:
-            data (dict): {feat name: {feat value: [idx, ...]}.
-            y (np.ndarray).
-            feat_map (dict): {feat name: {feat 2 int label}}.
-            feat_type (dict): {feat_name: "numerical" or "categorical"}.
+            data (np.ndarray): n samples x n feature.
+            y (np.ndarray): labels.
+            feats (list): indicate data's column name.
+            feat_map (dict): contain split point and object to int label.
+            feat_type (dict): feat_name: "num" or "cate".
+        Returns:
+            None
         """
-        cond0 = self.depth >= self.max_depth
-        cond1 = len(y) <= self.min_samples
-        count = sum([len(data[x].keys()) for x in data])
-        cond2 = count == 1
-        if cond0 or cond1 or cond2:
-            self.is_leaf = True
+        if len(set(y)) == 1 or\
+           len(y) <= self.min_samples or\
+           self.depth >= self.max_depth:
             counter = Counter(y)
-            self.output = max(counter, key=counter.get)
+            self.output = counter.most_common()[0][0]
+            self.is_leaf = True
+            return
+
+        # filter data, delete column which has only 1 value
+        data, feats, feat_map = filter_data(data, feats, feat_type, feat_map)
+        # choose m feat
+        choose_feats = random_feat(feats, self.min_m)
+        # iter and find best feat and best value
+        best_score = float('inf')
+        best_feat = None
+        best_value = None
+        for name, idx in choose_feats.items():
+            x = data[:, idx]
+            if feat_type[name] == "categorical":
+                xs = list(set(x))
+                if len(xs) == 2:
+                    xs.pop(0)
+                for v in xs:
+                    true_y = y[x == v]
+                    false_y = y[x != v]
+                    score = gini_score(true_y, false_y)
+                    if score < best_score:
+                        best_score = score
+                        best_feat = name
+                        best_value = v
+            else:
+                xs = feat_map[name]
+                for v in xs:
+                    true_y = y[x <= v]
+                    false_y = y[x > y]
+                    score = gini_score(true_y, false_y)
+                    if score < best_score:
+                        best_score = score
+                        best_feat = name
+                        best_value = v
+        # update self info
+        self.score = best_score
+        self.feat_name = best_feat
+        self.x0 = best_value
+        self.data_type = feat_type[best_feat]
+        # split
+        self.split(data, y, feats, feat_map, feat_type)
+
+    def split(self, data, y, feats, feat_map, feat_types):
+        """split
+        """
+        idx = feats.index(self.feat_name)
+        x = data[:, idx]
+        if feat_types[self.feat_name] == "categorical":
+            true_idx = x == self.x0
+            false_idx = x != self.x0
         else:
-            feat_names = list(feat_map.keys())
-            scores = {}
-            for feat_name in feat_names:
-                values = list(data[feat_name].keys())
-                if len(values) == 1:
-                    # drop this feature
-                    del data[feat_name]
-                    del feat_map[feat_name]
-                    continue
-                # calc each feature value's gini score
-                if feat_type[feat_name] == "categorical":
-                    scores[feat_name] = self.categorical_scores(values, y, data[feat_name])
-                else:
-                    scores[feat_name] = self.numerical_scores(values, y, data[feat_name],
-                                                              feat_map[feat_name])
-            # find best feature and value
-            best_feat_name = None
-            best_v = None
-            best_score = float('inf')
-            for feat_name in scores:
-                for v in scores[feat_name]:
-                    s = scores[feat_name][v]
-                    if s < best_score:
-                        best_score = s
-                        best_v = v
-                        best_feat_name = feat_name
-            
-            # update data, store info
-        
-    def update(self, feat_name, v, s, data, y, feat_map, feat_type):
-        """store info, update data and feat_map, split.
-        """
-        self.feat_name = feat_name
-        self.x0 = v
-        self.data_type = feat_type[feat_name]
-
-        # update data.
-        if self.data_type == "categorical":
-            left = data[feat_name][v]
-            right = reduce(lambda a, b: a + b,
-                           [data[feat_name][i] for i in data[feat_name] if i != v])
-            del data[feat_name][v]
-            del feat_map[feat_name][v]
-            left_y = y[left]
-            right_y = y[right]
-            left_idx_map = {x: i for i, x in enumerate(left)}
-            right_idx_map = {x: i for i, x in enumerate(right)}
-            left_data = {
-                feat_name: {
-                    v: [left_idx_map[idx] for idx in data[feat_name][v]]
-                    for v in data[feat_name]
-                } for feat_name in data
-            }
-            right_data = {
-                feat_name: {
-                    v: [right_idx_map[idx] for idx in data[feat_name][v]]
-                    for v in data[feat_name]
-                } for feat_name in data
-            }
-            left_feat_map = feat_map
-            del left_feat_map[self.feat_name]
-            left_feat_map[self.feat_name] = {
-                "int2feat": {self.x0: feat_map[self.feat_name][self.x0]},
-                
-            }
-            right_feat_map = feat_map
-            del right
-        else:
-            split_points = feat_map[feat_name]
-            left_x = sorted([x for x in split_points if x < v])
-            right_x = sorted([x for x in split_points if x > v])
-            choose_idx = len(left_x)
-            M = len(split_points)
-            left_idx = reduce(lambda a, b: a + b,
-                              [data[feat_name][i] for i in range(choose_idx)])
-            right_idx = reduce(lambda a, b: a + b, [data[feat_name][i]
-                               for i in range(choose_idx, M + 1)])
-            left_y = y[left_idx]
-            right_y = y[right_idx]
-            left_idx_map = {x: i for i, x in enumerate(left_idx)}
-            right_idx_map = {x: i for i, x in enumerate(right_idx)}
-
-            # update data
-            left_data = {
-                feat_name: {
-                    v: [left_idx_map[idx] for idx in data[feat_name][v]]
-                    for v in data[feat_name]
-                } for feat_name in data if feat_name != self.feat_name
-            }
-            left_data[self.feat_name] = {
-                k: [left_idx_map[x] for x in left_data[self.feat_name][k]]
-                for k in range(choose_idx)
-            }
-            right_data = {
-                feat_name: {
-                    v: [right_idx_map[idx] for idx in data[feat_name][v]]
-                    for v in data[feat_name]
-                } for feat_name in data if feat_name != self.feat_name
-            }
-            right_data[self.feat_name] = {
-                k - choose_idx: [right_idx_map[x] for x in data[self.feat_name][k]]
-                for k in range(choose_idx, M + 1)
-            }
-            # update feat_map
-            left_feat
+            true_idx = x <= self.x0
+            false_idx = x > self.x0
+            splits = feat_map[self.feat_name]
+            feat_map[self.feat_name] = list(filter(lambda x: x != self.x0,
+                                                   splits))
+        # split data into 2 parts
+        true_data = data[true_idx]
+        false_data = data[false_idx]
+        true_y = y[true_idx]
+        false_y = y[false_idx]
+        # build new tree
+        self.true_t = CartTreeNode(self.depth + 1, self.max_depth,
+                                   self.min_samples, self.min_m)
+        self.true_t.fit(true_data, true_y, feats, feat_map, feat_types)
+        self.false_t = CartTreeNode(self.depth + 1, self.max_depth,
+                                    self.min_samples, self.min_m)
+        self.false_t.fit(false_data, false_y, feats, feat_map, feat_types)
 
 
-    def categorical_scores(self, values, y, value2idx):
-        """calculate gini for categorical feature.
-
-        Args:
-            values (list): [v0, v1, ...].
-            y (np.ndarray).
-            value2idx (dict): {value: [idx, ...]}
-        Returns:
-            scores (dict): {value: gini score}
-        """
-        if len(values) == 2:
-            values = values[:1]
-        scores = {}
-        for v in values:
-            other_v = list(filter(lambda x: x != v, value2idx.keys()))
-            idx0 = value2idx[v]
-            idx1 = reduce(lambda a, b: a + b, [value2idx[i] for i in other_v])
-            scores[v] = gini_score(y, idx0, idx1)
-        return scores
-
-
-    def numerical_scores(self, values, y, value2idx, split_points):
-        """calc gini score for numerical feature.
-
-        Args:
-            split_points (list [float]): [x0, x1, ...], in order.
-        Returns:
-            scores (dict): {xi: gini}
-        """
-        assert len(values) == len(split_points) + 1
-        scores = {}
-        for idx, x in enumerate(split_points):
-            v0 = range(0, idx)
-            v1 = range(idx, len(split_points) + 1)
-            idx0 = reduce(lambda a, b: a + b, [value2idx[i] for i in v0])
-            idx1 = reduce(lambda a, b: a + b, [value2idx[i] for i in v1])
-            scores[x] = gini_score(y, idx0, idx1)
-        return scores
-        
-
-
-
-        
-        
-    

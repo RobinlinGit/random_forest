@@ -39,27 +39,20 @@ def categery_preprocess(column):
     return data, int2feature, feature2int
 
 
-def numerical_preprocess(column, y):
-    """generate split point and map undefine to -1.
+def find_split_x(column, y):
+    """generate split point.
 
     Args:
         column (np.ndarray): numerical column [n_samples, 1].
         y (np.ndarray): int labels.
     Returns:
-        data (np.ndarray): [n samples, 1], map float x to int label, eg:
-            x = 1.0, 2th interval is (0, 1.2], so we map x to 2,
-            undefine value will map to -1
         spilt_points (list [float]): split points for column.
     """
-    data = np.zeros(column.shape, dtype=np.uint8)
-    origin_data = column
-    y2 = y
 
     # sort x, find potential split point
-
     sort_idx = np.argsort(column)
     column = column[sort_idx]
-    y2 = y2[sort_idx]
+    y2 = y[sort_idx]
     diff_x = np.diff(column)
     idxes = np.where(diff_x != 0)[0] + 1
     idxes = [0] + idxes.tolist() + [None]
@@ -79,37 +72,12 @@ def numerical_preprocess(column, y):
 
     split_x = [(column[i] + column[i-1]) / 2 for i in split_idx]
     split_x = sorted(split_x)
-    iter_x = [-np.inf] + split_x
-    # map x to int label
-    for i in range(len(iter_x) - 1):
-        select_idx = np.logical_and(origin_data > iter_x[i], origin_data <= iter_x[i + 1])
-        data[select_idx] = i
-    data[origin_data > iter_x[-1]] = i + 1
-    # print(f"data {data}")
-    # print(set(data))
-    # print(f"split x {split_x}")
-    return data, split_x
-        
-
-def build_inverted_index(data):
-    """build a value: [idx0, idx1] inverted table.
-
-    Args:
-        data (list or np.ndarray).
-    Returns:
-        table (dict).
-    """
-    values = set(data)
-    print(len(values))
-    table = {v: [] for v in values}
-    for i, v in enumerate(data):
-        table[v].append(i)
-    return table
+    return split_x
 
 
 @log
 def preprocess(df, y, feature_types):
-    """preprocess data into a reverted index dict for efficient split.
+    """preprocess data, map categorical object to int.
 
     Args:
         df (pandas.DataFrame): n samples x n_features.
@@ -117,24 +85,25 @@ def preprocess(df, y, feature_types):
         feature_type (dict): key is feature name,
             value is in ["numerical", "categorical"].
     Returns:
-        data (dict): {feat_name: {feat_value: [idx]}}.
+        data (numpy.ndarray): n samples x n feature.
+        feat_names (list (str)): for index.
         label_map (dict): {feat_name: [x0, x1, ...]} for numerical,
             {feat_name: {"int2feat": v, "feat2int": v}} for categorical.
     """
     for _, v in feature_types.items():
         assert v in ["numerical", "categorical"]
-    data = {}
     label_map = {}
     for feat_name, feat_type in feature_types.items():
         column = df[feat_name].values
         # numerical process
         if feat_type == "numerical":
-            column, split_x = numerical_preprocess(column, y)
+            split_x = find_split_x(column, y)
             label_map[feat_name] = split_x
         # categorical process
         else:
             column, int2feat, feat2int = categery_preprocess(column)
             label_map[feat_name] = {"int2feat": int2feat, "feat2int": feat2int}
-
-        data[feat_name] = build_inverted_index(column)
-    return data, label_map
+            df[feat_name] = column
+    data = df.values
+    feat_names = list(df.columns)
+    return data, feat_names, label_map
