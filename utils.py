@@ -13,6 +13,8 @@ import math
 from time import time
 from collections import Counter
 
+from numpy.lib.shape_base import split
+
 
 def gini(x):
     """gini score g = 1 - \sum_k p_k^2
@@ -44,42 +46,44 @@ def gini_score(y0, y1):
     return score
 
 
-def filter_data(data, feats, feat_types, feat_map):
+def filter_data(data, feat_types, split_x, origin_idx):
     """delete column which has only one value.
     """
     rm_list = []
-    for idx, name in enumerate(feats):
-        if feat_types[name] == "categorical" and \
+    for idx in range(data.shape[1]):
+        if feat_types[idx] == "categorical" and \
            len(set(data[:, idx])) <= 1:
             rm_list.append(idx)
-        elif feat_types[name] == "numerical" and len(feat_map[name]) == 0:
-            rm_list.append(idx)
+        elif feat_types[idx] == "numerical":
+            if idx not in split_x or len(split_x[idx]) == 0:
+                rm_list.append(idx)
 
-    keep_idx = list(filter(lambda x: x not in rm_list, range(len(feats))))
-    feats = [feats[i] for i in keep_idx]
+    keep_idx = list(filter(lambda x: x not in rm_list, range(data.shape[1])))
+    keep_idx2idx = {k: i for i, k in enumerate(keep_idx)}
     data = data[:, keep_idx]
-    feat_map = {n: feat_map[n] for n in feats}
-    return data, feats, feat_map
+    feat_map = {keep_idx2idx[n]: split_x[n]
+                for n in keep_idx if n in split_x}
+    feat_types = [feat_types[n] for n in keep_idx]
+    origin_idx = {keep_idx2idx[n]: origin_idx[n] for n in keep_idx}
+    return data, feat_map, feat_types, origin_idx
 
 
-def random_feat(feats, min_m):
+def random_feat(len_feat, min_m):
     """random choose m features.
 
     Args:
-        feats (list [str]).
+        len_feat (int).
         min_m (int).
     Returns:
-        feat2idx (dict): {feat: idx}
+        feat_idx (list): [idx]]
     """
-    feat2idx = {name: i for i, name in enumerate(feats)}
-    m = math.ceil(math.sqrt(len(feats)))
-    if m < min_m:
-        m = min_m
-    choose_idx = list(range(len(feats)))
+    
+    m = max([math.ceil(math.sqrt(len_feat)), min_m])
+    m = min(m, len_feat)
+    choose_idx = list(range(len_feat))
     random.shuffle(choose_idx)
-    choose_idx = choose_idx[: m]
-    feat2idx = {feats[i]: feat2idx[feats[i]] for i in choose_idx}
-    return feat2idx
+    feat_idx = choose_idx[: m]
+    return feat_idx
 
 
 def log(func):
