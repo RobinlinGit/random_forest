@@ -14,6 +14,9 @@ for col in df:
     feat_types[col] = "categorical" if df[col].dtype == object else "numerical"
 
 # %%
+data, feats, feat_map = preprocess(df.copy(), y, feat_types)
+# %%
 t = CartTree(10, 20, 2)
-t.fit(df, y, feat_types)
+t.fit(df.copy(), y, feat_types)
+# %%
 # %%

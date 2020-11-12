@@ -57,21 +57,24 @@ def find_split_x(column, y):
     idxes = np.where(diff_x != 0)[0] + 1
     idxes = [0] + idxes.tolist() + [None]
 
-    # sort y array with the same x value
+    last_y = None
+    split_x = []
+    # find split x
     for i in range(len(idxes)-1):
-        x = column[idxes[i]: idxes[i+1]]
         ys = y2[idxes[i]: idxes[i+1]]
-        sort_idx = np.argsort(ys)
-        column[idxes[i]: idxes[i+1]] = x[sort_idx]
-        y2[idxes[i]: idxes[i+1]] = ys[sort_idx]
-
-    # find split points
-    diff_y = np.diff(y2)
-    split_idx = np.where(diff_y != 0)[0] + 1
-    split_idx = list(filter(lambda x: x in idxes, split_idx))
-
-    split_x = [(column[i] + column[i-1]) / 2 for i in split_idx]
-    split_x = sorted(split_x)
+        if len(set(ys)) == 1:
+            if last_y is not None and last_y != ys[0]:
+                x0 = column[idxes[i]]
+                x1 = column[idxes[i - 1]]
+                split_x.append((x0 + x1) / 2)
+            last_y = ys[0]
+        else:
+            last_y = None
+            if i >= 1:
+                split_x.append((column[idxes[i]] + column[idxes[i-1]]) / 2)
+            if i+1 < len(idxes) - 1:
+                split_x.append((column[idxes[i]] + column[idxes[i+1]]) / 2)
+    split_x = sorted(list(set(split_x)))
     return split_x
 
 

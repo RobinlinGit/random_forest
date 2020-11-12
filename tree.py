@@ -9,15 +9,10 @@
 @Desc    :   CART tree implement
 '''
 import numpy as np
-import math
-import random
 from collections import Counter
-from functools import reduce
 
-from numpy.lib.shape_base import split
 from preprocess import preprocess
 from utils import (
-    gini,
     gini_score,
     filter_data,
     random_feat,
@@ -25,17 +20,16 @@ from utils import (
 )
 
 
-
-def tree_condition(x, x0, operator):
+def tree_condition(x, x0, feat_type):
     """tree node condition function
 
     Args:
-        x (int or float): data.
+        x (int or float): data. 
         x0 (int or float): condition right value.
-        operator (str): support "==", "<=".
+        type (str): support "categorical", "numerical".
     """
-    assert operator in ["==", "<="]
-    if operator == "==":
+    assert feat_type in ["categorical", "numerical"]
+    if feat_type == "categorical":
         return x == x0
     else:
         return x <= x0
@@ -72,9 +66,27 @@ class CartTree(object):
             if feat_type[self.feat_names[i]] == "numerical"
         }
         feat_types = {i: feat_type[self.feat_names[i]] for i in origin_idx}
-        print(feat_types)
         self.root.fit(data, y, split_x, feat_types, origin_idx)
         print("done")
+    
+    def predict(self, x):
+        """
+        Args:
+            x (np.ndarray): feature, size (n_samples, n_features).
+        Returns:
+            label (list): [n samples].
+        """
+        assert len(x.shape) == 2
+        labels = []
+        for i in range(x.shape[0]):
+            feat = x[i]
+            t = self.root
+            while not t.is_leaf:
+                t = t.true_t if tree_condition(feat[t.feat_col], t.x0, t.data_type)\
+                    else t.false_t
+            labels.append(t.output)
+        return labels
+
 
 class CartTreeNode(object):
     """Cart Decision Tree Algorithm.
@@ -117,11 +129,8 @@ class CartTreeNode(object):
            len(y) <= self.min_samples or\
            self.depth >= self.max_depth:
             counter = Counter(y)
-            try:
-                self.output = counter.most_common()[0][0]
-                self.is_leaf = True
-            except IndexError:
-                print(y)
+            self.output = counter.most_common()[0][0]
+            self.is_leaf = True
             return
 
         # filter data, delete column which has only 1 value
@@ -181,22 +190,24 @@ class CartTreeNode(object):
             true_idx = x <= self.x0
             x0idx = split_x[col].index(self.x0)
             true_split[col] = split_x[col][: x0idx]
-            false_split[col] = split_x[col][x0idx + 1: ]
+            false_split[col] = split_x[col][x0idx + 1:]
         false_idx = np.logical_not(true_idx)
-
         # split data into 2 parts
         true_data = data[true_idx]
         false_data = data[false_idx]
         true_y = y[true_idx]
         false_y = y[false_idx]
-        
-
+        if len(false_y) == 0 or len(true_y) == 0:
+            print(self.data_type)
+            print(self.feat_col)
+            print(self.x0)
+            print(split_x[col])
+    
         # build new tree
         self.true_t = CartTreeNode(self.depth + 1, self.max_depth,
                                    self.min_samples, self.min_m)
         self.true_t.fit(true_data, true_y, true_split, feat_types, origin_idx)
         self.false_t = CartTreeNode(self.depth + 1, self.max_depth,
                                     self.min_samples, self.min_m)
-        self.false_t.fit(false_data, false_y, false_split, feat_types, origin_idx)
-
-
+        self.false_t.fit(false_data, false_y, false_split,
+                         feat_types, origin_idx)

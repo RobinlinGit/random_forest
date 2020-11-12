@@ -13,8 +13,6 @@ import math
 from time import time
 from collections import Counter
 
-from numpy.lib.shape_base import split
-
 
 def gini(x):
     """gini score g = 1 - \sum_k p_k^2
@@ -55,7 +53,14 @@ def filter_data(data, feat_types, split_x, origin_idx):
            len(set(data[:, idx])) <= 1:
             rm_list.append(idx)
         elif feat_types[idx] == "numerical":
-            if idx not in split_x or len(split_x[idx]) == 0:
+            if idx not in split_x:
+                rm_list.append(idx)
+                continue
+            # for x in split_x[idx].copy():
+            #     if np.all(data[:, idx] <= x):
+            #         split_x[idx].remove(x)
+            #         print(f"rm : {idx}, {x}")
+            if len(split_x[idx]) == 0:
                 rm_list.append(idx)
 
     keep_idx = list(filter(lambda x: x not in rm_list, range(data.shape[1])))
@@ -77,7 +82,6 @@ def random_feat(len_feat, min_m):
     Returns:
         feat_idx (list): [idx]]
     """
-    
     m = max([math.ceil(math.sqrt(len_feat)), min_m])
     m = min(m, len_feat)
     choose_idx = list(range(len_feat))
