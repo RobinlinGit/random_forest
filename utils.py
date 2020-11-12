@@ -14,6 +14,11 @@ from time import time
 from collections import Counter
 
 
+def bootstrap_sample(L, size):
+    a = np.arange(L)
+    return set(np.random.choice(a, size=size))
+
+
 def gini(x):
     """gini score g = 1 - \sum_k p_k^2
 
@@ -39,6 +44,7 @@ def gini_score(y0, y1):
     Returns:
         weighted gini score (float).
     """
+    assert len(y0) > 0 and len(y1) > 0
     N = len(y0) + len(y1)
     score = len(y0) / N * gini(y0) + len(y1) / N * gini(y1)
     return score
@@ -56,10 +62,13 @@ def filter_data(data, feat_types, split_x, origin_idx):
             if idx not in split_x:
                 rm_list.append(idx)
                 continue
-            # for x in split_x[idx].copy():
-            #     if np.all(data[:, idx] <= x):
-            #         split_x[idx].remove(x)
-            #         print(f"rm : {idx}, {x}")
+            for x in split_x[idx].copy():
+                cond = data[:, idx] <= x
+                cond1 = np.logical_not(cond)
+                if np.all(cond) or np.all(cond1):
+                    # print(f"remove {x}, {idx}")
+                    # print(set(data[:, idx]))
+                    split_x[idx].remove(x)
             if len(split_x[idx]) == 0:
                 rm_list.append(idx)
 
@@ -73,6 +82,22 @@ def filter_data(data, feat_types, split_x, origin_idx):
     return data, feat_map, feat_types, origin_idx
 
 
+def check(data, feat_types, split_x, origin_idx):
+    rm_list = []
+    for idx in range(data.shape[1]):
+        if feat_types[idx] == "categorical" and \
+           len(set(data[:, idx])) <= 1:
+            rm_list.append(idx)
+        elif feat_types[idx] == "numerical":
+            if idx not in split_x:
+                rm_list.append(idx)
+                continue
+            for x in split_x[idx].copy():
+                if np.all(data[:, idx] <= x):
+                    raise Exception("false")
+                    split_x[idx].remove(x)
+            if len(split_x[idx]) == 0:
+                rm_list.append(idx)
 def random_feat(len_feat, min_m):
     """random choose m features.
 

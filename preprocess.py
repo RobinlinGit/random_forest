@@ -110,3 +110,14 @@ def preprocess(df, y, feature_types):
     data = df.values
     feat_names = list(df.columns)
     return data, feat_names, label_map
+
+
+def format_data(data, feat_names, feat_map, feat_type):
+    origin_idx = {i: i for i in range(len(feat_names))}
+    split_x = {
+        i: feat_map[feat_names[i]]
+        for i in range(len(feat_names))
+        if feat_type[feat_names[i]] == "numerical"
+    }
+    feat_types = {i: feat_type[feat_names[i]] for i in origin_idx}
+    return split_x, feat_types, origin_idx

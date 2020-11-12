@@ -9,15 +9,59 @@
 @Desc    :   CART tree implement
 '''
 import numpy as np
+import os
 from collections import Counter
-
-from preprocess import preprocess
+from multiprocessing import Pool
+from preprocess import preprocess, format_data
 from utils import (
     gini_score,
     filter_data,
     random_feat,
-    log
+    log,
+    bootstrap_sample
 )
+
+
+class RandomForest(object):
+
+    def __init__(self, num_tree, max_depth, min_m, min_samples, process_num=8):
+        self.num_tree = num_tree
+        self.max_depth = max_depth
+        self.min_m = min_m
+        self.min_samples = min_samples
+        self.process_num = process_num
+
+    def fit(self, X, y, feat_types):
+        self.X = X
+        self.y = y
+        self.feat_types = feat_types.copy()
+        self.split_x = split_x
+        self.use_record = np.ones((X.shape[0], self.num_tree), dtype=bool)
+        self.use_record *= False
+        p = Pool(self.process_num)
+        for i in range(self.num_tree):
+            sample_idxs = bootstrap_sample(X.shape[0], X.shape[0])
+            X = self.X[sample_idxs]
+            y = self.y[sample_idxs]
+            self.use_record[sample_idxs, i] = True
+            p.apply_async(
+                train_tree, 
+                args=(self.max_depth, self.min_samples, self.min_m,
+                      X, y, self.feat_types, self.split_x)
+            )
+
+
+def train_tree(max_depth, min_samples, min_m,
+               X, y, split_x, feat_type, origin_idx):
+    """train a CartTree
+
+    Returns:
+        CartTree.
+    """
+    ct = CartTree(max_depth, min_samples, min_m)
+    ct.fit(X, y, split_x, origin_idx, feat_type)
+    print(f"tree train pid {os.getpid()} finished")
+    return ct
 
 
 def tree_condition(x, x0, feat_type):
@@ -50,25 +94,16 @@ class CartTree(object):
         self.min_samples = min_samples
 
     @log
-    def fit(self, X, y, feat_type):
+    def fit(self, X, y, split_x, origin_idx, feat_type):
         """train
 
         Args:
-            X (pd.DataFrame): n samples x n_features.
+            X (np.ndarray): n samples x n_features.
             y (np.ndarray).
-            feat_type (dict): {feat_name: numerical or categorical}
+            feat_type (dict): {idx: numerical or categorXical}
         """
-        data, self.feat_names, self.feat_map = preprocess(X, y, feat_type)
-        origin_idx = {i: i for i in range(len(self.feat_names))}
-        split_x = {
-            i: self.feat_map[self.feat_names[i]]
-            for i in range(len(self.feat_names))
-            if feat_type[self.feat_names[i]] == "numerical"
-        }
-        feat_types = {i: feat_type[self.feat_names[i]] for i in origin_idx}
-        self.root.fit(data, y, split_x, feat_types, origin_idx)
-        print("done")
-    
+        self.root.fit(X, y, split_x, feat_type, origin_idx)
+
     def predict(self, x):
         """
         Args:
@@ -82,8 +117,8 @@ class CartTree(object):
             feat = x[i]
             t = self.root
             while not t.is_leaf:
-                t = t.true_t if tree_condition(feat[t.feat_col], t.x0, t.data_type)\
-                    else t.false_t
+                t = t.true_t if tree_condition(
+                    feat[t.feat_col], t.x0, t.data_type) else t.false_t
             labels.append(t.output)
         return labels
 
@@ -103,7 +138,7 @@ class CartTreeNode(object):
         is_leaf (bool).
         output (int): if is leaf, output is label, else None.
     """
-    def __init__(self, depth, max_depth, min_samples, min_m):
+    def __init__(self, depth, max_depth, min_samples, min_m, father=None):
         self.max_depth = max_depth
         self.depth = depth
         self.min_samples = min_samples
@@ -112,6 +147,7 @@ class CartTreeNode(object):
         self.x0 = None
         self.feat_name = None
         self.is_leaf = False
+        self.father = father
     
     def fit(self, data, y, split_x, feat_type, origin_idx):
         """
@@ -125,6 +161,9 @@ class CartTreeNode(object):
         Returns:
             None
         """
+        split_x = split_x.copy()
+        feat_type = feat_type.copy()
+        origin_idx = origin_idx.copy()
         if len(set(y)) == 1 or\
            len(y) <= self.min_samples or\
            self.depth >= self.max_depth:
@@ -205,9 +244,9 @@ class CartTreeNode(object):
     
         # build new tree
         self.true_t = CartTreeNode(self.depth + 1, self.max_depth,
-                                   self.min_samples, self.min_m)
+                                   self.min_samples, self.min_m, self)
         self.true_t.fit(true_data, true_y, true_split, feat_types, origin_idx)
         self.false_t = CartTreeNode(self.depth + 1, self.max_depth,
-                                    self.min_samples, self.min_m)
+                                    self.min_samples, self.min_m, self)
         self.false_t.fit(false_data, false_y, false_split,
                          feat_types, origin_idx)
