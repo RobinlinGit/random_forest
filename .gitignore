@@ -2,6 +2,8 @@
 test.py
 *.docx#
 *.docx
+*.rf
+*.data
 
 
 
