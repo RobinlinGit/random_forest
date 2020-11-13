@@ -16,7 +16,7 @@ from collections import Counter
 
 def bootstrap_sample(L, size):
     a = np.arange(L)
-    return set(np.random.choice(a, size=size))
+    return np.random.choice(a, size=size)
 
 
 def gini(x):
@@ -82,22 +82,6 @@ def filter_data(data, feat_types, split_x, origin_idx):
     return data, feat_map, feat_types, origin_idx
 
 
-def check(data, feat_types, split_x, origin_idx):
-    rm_list = []
-    for idx in range(data.shape[1]):
-        if feat_types[idx] == "categorical" and \
-           len(set(data[:, idx])) <= 1:
-            rm_list.append(idx)
-        elif feat_types[idx] == "numerical":
-            if idx not in split_x:
-                rm_list.append(idx)
-                continue
-            for x in split_x[idx].copy():
-                if np.all(data[:, idx] <= x):
-                    raise Exception("false")
-                    split_x[idx].remove(x)
-            if len(split_x[idx]) == 0:
-                rm_list.append(idx)
 def random_feat(len_feat, min_m):
     """random choose m features.
 

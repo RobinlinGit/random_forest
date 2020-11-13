@@ -11,57 +11,23 @@
 import numpy as np
 import os
 from collections import Counter
-from multiprocessing import Pool
-from preprocess import preprocess, format_data
+from multiprocessing import Queue
+from preprocess import find_split_x
 from utils import (
     gini_score,
     filter_data,
     random_feat,
-    log,
-    bootstrap_sample
+    log
 )
 
 
-class RandomForest(object):
-
-    def __init__(self, num_tree, max_depth, min_m, min_samples, process_num=8):
-        self.num_tree = num_tree
-        self.max_depth = max_depth
-        self.min_m = min_m
-        self.min_samples = min_samples
-        self.process_num = process_num
-
-    def fit(self, X, y, feat_types):
-        self.X = X
-        self.y = y
-        self.feat_types = feat_types.copy()
-        self.split_x = split_x
-        self.use_record = np.ones((X.shape[0], self.num_tree), dtype=bool)
-        self.use_record *= False
-        p = Pool(self.process_num)
-        for i in range(self.num_tree):
-            sample_idxs = bootstrap_sample(X.shape[0], X.shape[0])
-            X = self.X[sample_idxs]
-            y = self.y[sample_idxs]
-            self.use_record[sample_idxs, i] = True
-            p.apply_async(
-                train_tree, 
-                args=(self.max_depth, self.min_samples, self.min_m,
-                      X, y, self.feat_types, self.split_x)
-            )
-
-
-def train_tree(max_depth, min_samples, min_m,
-               X, y, split_x, feat_type, origin_idx):
-    """train a CartTree
-
-    Returns:
-        CartTree.
-    """
-    ct = CartTree(max_depth, min_samples, min_m)
-    ct.fit(X, y, split_x, origin_idx, feat_type)
-    print(f"tree train pid {os.getpid()} finished")
-    return ct
+@log
+def train_tree(i, q: Queue, tree_args, X, y, origin_idx, feat_types):
+    print(f"{i} th train start")
+    t = CartTree(*tree_args)
+    t.fit(X, y, origin_idx, feat_types)
+    q.put((i, t))
+    print(f"{i} th tree complete")
 
 
 def tree_condition(x, x0, feat_type):
@@ -94,7 +60,7 @@ class CartTree(object):
         self.min_samples = min_samples
 
     @log
-    def fit(self, X, y, split_x, origin_idx, feat_type):
+    def fit(self, X, y, origin_idx, feat_type):
         """train
 
         Args:
@@ -102,6 +68,8 @@ class CartTree(object):
             y (np.ndarray).
             feat_type (dict): {idx: numerical or categorXical}
         """
+        split_x = {idx: find_split_x(X[:, idx], y) for idx in range(X.shape[1])
+                   if feat_type[idx] == "numerical"}
         self.root.fit(X, y, split_x, feat_type, origin_idx)
 
     def predict(self, x):
@@ -121,6 +89,7 @@ class CartTree(object):
                     feat[t.feat_col], t.x0, t.data_type) else t.false_t
             labels.append(t.output)
         return labels
+
 
 
 class CartTreeNode(object):
