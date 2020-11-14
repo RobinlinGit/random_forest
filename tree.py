@@ -70,6 +70,7 @@ class CartTree(object):
         """
         split_x = {idx: find_split_x(X[:, idx], y) for idx in range(X.shape[1])
                    if feat_type[idx] == "numerical"}
+        # print(f"cart tree, data size: {X.shape}")
         self.root.fit(X, y, split_x, feat_type, origin_idx)
 
     def predict(self, x):
@@ -145,6 +146,11 @@ class CartTreeNode(object):
         data, feat_map, feat_type, origin_idx = filter_data(
             data, feat_type, split_x, origin_idx
         )
+        if data.shape[1] == 0:
+            counter = Counter(y)
+            self.output = counter.most_common()[0][0]
+            self.is_leaf = True
+            return
         # choose m feat
         feat_idx = random_feat(data.shape[1], self.min_m)
         # iter and find best feat and best value
@@ -179,6 +185,9 @@ class CartTreeNode(object):
                         best_value = v
         # update self info
         self.score = best_score
+        if best_feat is None:
+            print(data.shape)
+
         self.feat_col = origin_idx[best_feat]
         self.x0 = best_value
         self.data_type = feat_type[best_feat]

@@ -9,21 +9,28 @@ from sklearn.metrics import classification_report
 from forest import RandomForest, train_forests
 
 
-
-
 if __name__ == "__main__":
     freeze_support()
-
-
-    df = pd.read_csv("./bank-additional-full.csv")
-    y = df['y'].values
-    y = np.vectorize({"yes": 1, "no": 0}.__getitem__)(y)
-    df = df.drop(columns=["y", "duration"])
-    feat_types = {}
-    for col in df:
-        feat_types[col] = "categorical" if df[col].dtype == object else "numerical"
-
-    data, feats, feat_map = preprocess(df, y, feat_types)
-    split_x, feat_type, origin_idx = format_data(data, feats, feat_map, feat_types)
-
-    train_forests(4, 4, 10, 20, 2, data, y, feat_type, "rf", "rf")
+    with open("processed_keep.data", "rb") as f:
+        pack = pickle.load(f)
+    data = pack["data"]
+    y = pack["y"]
+    feat_type = pack["feat_type"]
+    for num_tree in [50, 100, 200, 500, 1000, 2000]:
+        for max_depth in [10, 20, 30, 40]:
+            for min_samples in [1, 5, 10, 20]:
+                min_m = 1
+                filename = f"./result/{num_tree}-{max_depth}-{min_samples}-{min_m}.json"
+                train_forests(
+                    num_tree,
+                    int(num_tree / 50),
+                    max_depth,
+                    min_samples,
+                    min_m,
+                    data,
+                    y,
+                    feat_type,
+                    True,
+                    "./result_keep",
+                    True
+                )

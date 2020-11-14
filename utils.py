@@ -19,6 +19,18 @@ def bootstrap_sample(L, size):
     return np.random.choice(a, size=size)
 
 
+def balance_sample(y):
+    idxes = []
+    counter = Counter(y)
+    N = counter.most_common()[-1][1]
+    for c in counter:
+        c_idx = np.where(y == c)[0]
+        L = counter[c]
+        c_idx = c_idx[bootstrap_sample(L, N)].tolist()
+        idxes += c_idx
+    return idxes
+
+
 def gini(x):
     """gini score g = 1 - \sum_k p_k^2
 

@@ -1,9 +1,10 @@
 *.csv
-test.py
 *.docx#
 *.docx
 *.rf
 *.data
+*.json
+rf/*
 
 
 

@@ -11,9 +11,12 @@
 import os
 import pickle
 import numpy as np
+import json
 from multiprocessing import Queue, Process
+
+from scipy.sparse import data
 from tree import CartTree
-from utils import bootstrap_sample
+from utils import bootstrap_sample, balance_sample
 
 
 class RandomForest(object):
@@ -31,13 +34,14 @@ class RandomForest(object):
         y (np.ndarray): labels.
 
     """
-    def __init__(self, num_tree, max_depth, min_m, min_samples):
+    def __init__(self, num_tree, max_depth, min_m, min_samples, balance=False):
         self.num_tree = num_tree
         self.max_depth = max_depth
         self.min_m = min_m
         self.min_samples = min_samples
         self.forests = [CartTree(max_depth, min_samples, min_m) for _ in range(num_tree)]
         self.oob = None
+        self.balance = balance
 
     def fit(self, X, y, feat_types):
         self.X = X.copy()
@@ -46,10 +50,15 @@ class RandomForest(object):
         origin_idx = {i: i for i in range(X.shape[1])}
         self.use_record = np.ones((X.shape[0], self.num_tree), dtype=bool)
         self.use_record *= False
+        self.N = self.X.shape[0]
         for i in range(self.num_tree):
-            sample_idxs = bootstrap_sample(X.shape[0], X.shape[0])
+            if not self.balance:
+                sample_idxs = bootstrap_sample(self.N, self.N)
+            else:
+                sample_idxs = balance_sample(self.y)
             X = self.X[sample_idxs]
             y = self.y[sample_idxs]
+            # print(f"sample size: {X.shape}, {len(sample_idxs)}, {len(set(sample_idxs))}")
             self.use_record[sample_idxs, i] = True
             self.forests[i].fit(X, y, origin_idx, feat_types)
 
@@ -57,17 +66,13 @@ class RandomForest(object):
 
     def get_oob(self):
         if self.oob is None:
-            error_num = 0
-            totoal_num = 0
-            for i, t in enumerate(self.forests):
-                record = self.use_record[:, i].flatten()
-                # print(record.shape)
-                X = self.X[record]
-                y = self.y[record]
-                pred_y = np.array(self.predict(X))
-                totoal_num += len(y)
-                error_num += np.sum(y != pred_y)
-            self.oob = error_num / totoal_num
+            self.oob = []
+            for i in range(self.X.shape[0]):
+                record = np.logical_not(self.use_record[i])
+                idxes = np.where(record)[0]
+                pred_y = [self.forests[i].predict(self.X[i, :].reshape(1, -1))[0] for i in idxes]
+                pred_y = [int(k) for k in pred_y]
+                self.oob.append(pred_y)
         return self.oob
 
     def predict(self, X, vote=True):
@@ -104,7 +109,8 @@ def merge_forest(forest_list):
 
 
 def train_forests(num_tree, num_process, max_depth, min_samples, min_m,
-                  X, y, feat_types, folder, filename):
+                  X, y, feat_types, balance, folder,
+                  all_data=False):
     """train forest parallel.
 
     Args:
@@ -118,8 +124,8 @@ def train_forests(num_tree, num_process, max_depth, min_samples, min_m,
     sub_tree_num = int(num_tree / num_process)
     for i in range(num_process):
         p = Process(target=train_one,
-                    args=(X, y, feat_types, os.path.join(folder, str(i)), sub_tree_num,
-                          max_depth, min_m, min_samples,))
+                    args=(X, y, feat_types, os.path.join(folder, f"{i}.rf"), sub_tree_num,
+                          max_depth, min_m, min_samples, balance, ))
         p_list.append(p)
         p.start()
     for p in p_list:
@@ -128,20 +134,29 @@ def train_forests(num_tree, num_process, max_depth, min_samples, min_m,
     print("All process finish")
     forest_list = []
     for i in range(num_process):
-        fn = os.path.join(folder, str(i))
+        fn = os.path.join(folder, f"{i}.rf")
         with open(fn, "rb") as f:
             forest_list.append(pickle.load(f))
         os.remove(fn)
     rf = merge_forest(forest_list)
+    oob = rf.get_oob()
+    print("oob calc done")
+    filename = os.path.join(folder, f"{num_tree}-{max_depth}-{min_samples}-{min_m}-all.json")
+    oob_filename = os.path.join(folder, f"{num_tree}-{max_depth}-{min_samples}-{min_m}.json")
+    if all_data:
+        result = rf.predict(X, vote=False)
+        result = [[int(x) for x in r] for r in result]
+        with open(filename, "w") as f:
+            f.write(json.dumps(result))
+    with open(oob_filename, "w") as f:
+        f.write(json.dumps(oob))
     
-    with open(os.path.join(folder, filename), "wb") as f:
-        pickle.dump(rf, f)
 
 
 def train_one(X, y, feat_types, filename,
-                  sub_tree_num, max_depth, min_m, min_samples):
+                  sub_tree_num, max_depth, min_m, min_samples, balance):
     print(f"pid {os.getpid()} start")
-    rf = RandomForest(sub_tree_num, max_depth, min_m, min_samples)
+    rf = RandomForest(sub_tree_num, max_depth, min_m, min_samples, balance)
     rf.fit(X, y, feat_types)
     with open(filename, "wb") as f:
         pickle.dump(rf, f)

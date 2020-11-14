@@ -22,16 +22,19 @@ from preprocess import preprocess, format_data
 df = pd.read_csv("./bank-additional-full.csv")
 y = df['y'].values
 y = np.vectorize({"yes": 1, "no": 0}.__getitem__)(y)
-df = df.drop(columns=["y", "duration"])
+# df = df.drop(columns=["y", "duration"])
+df = df.drop(columns=["y"])
+origin_df = df.copy()
 
 # %%
 for col in df.columns:
-    if df[col].dtype == object and col != "default":
+    if df[col].dtype == object and col not in ["default", "duration"]:
         counter = Counter(df[col])
         v = counter.most_common()[0][0]
         df[col] = df[col].replace("unknown", v)
-    elif col not in  ["default", "y"]:
-        m = df[col].mean()
+    elif col not in ["default", "duration"]:
+        m = df[col][df[col] != 999].mean()
+        print(col, m)
         df[col] = df[col].replace(999, m)
         
 # %%
@@ -50,5 +53,19 @@ pack = {
     "origin_idx": origin_idx,
     "y": y
 }
-with open("processed.data", "wb") as f:
+with open("processed_keep.data", "wb") as f:
+    pickle.dump(pack, f)
+data, feats, feat_map = preprocess(origin_df, y, feat_types)
+split_x, feat_type, origin_idx = format_data(data, feats, feat_map, feat_types)
+
+
+# %%
+pack = {
+    "data": data,
+    "feat_map": feat_map,
+    "feat_type": feat_type,
+    "origin_idx": origin_idx,
+    "y": y
+}
+with open("origin_keep.data", "wb") as f:
     pickle.dump(pack, f)
