@@ -15,15 +15,16 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from collections import Counter
-from preprocess import preprocess, format_data
+from preprocess import preprocess, format_info
+from utils import CATEGORICAL, NUMERICAL
 
 
 # %%
 df = pd.read_csv("./bank-additional-full.csv")
 y = df['y'].values
 y = np.vectorize({"yes": 1, "no": 0}.__getitem__)(y)
-# df = df.drop(columns=["y", "duration"])
-df = df.drop(columns=["y"])
+df = df.drop(columns=["y", "duration"])
+# df = df.drop(columns=["y"])
 origin_df = df.copy()
 
 # %%
@@ -40,9 +41,9 @@ for col in df.columns:
 # %%
 feat_types = {}
 for col in df:
-    feat_types[col] = "categorical" if df[col].dtype == object else "numerical"
+    feat_types[col] = CATEGORICAL if df[col].dtype == object else NUMERICAL
 data, feats, feat_map = preprocess(df, y, feat_types)
-split_x, feat_type, origin_idx = format_data(data, feats, feat_map, feat_types)
+split_x, feat_type, origin_idx = format_info(feats, feat_map, feat_types)
 
 
 # %%
@@ -53,13 +54,12 @@ pack = {
     "origin_idx": origin_idx,
     "y": y
 }
-with open("processed_keep.data", "wb") as f:
+with open("processed.data", "wb") as f:
     pickle.dump(pack, f)
 data, feats, feat_map = preprocess(origin_df, y, feat_types)
-split_x, feat_type, origin_idx = format_data(data, feats, feat_map, feat_types)
+split_x, feat_type, origin_idx = format_info(feats, feat_map, feat_types)
 
 
-# %%
 pack = {
     "data": data,
     "feat_map": feat_map,
@@ -67,5 +67,5 @@ pack = {
     "origin_idx": origin_idx,
     "y": y
 }
-with open("origin_keep.data", "wb") as f:
+with open("origin.keep.data", "wb") as f:
     pickle.dump(pack, f)

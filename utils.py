@@ -13,6 +13,9 @@ import math
 from time import time
 from collections import Counter
 
+CATEGORICAL = 0
+NUMERICAL = 1
+
 
 def bootstrap_sample(L, size):
     a = np.arange(L)
@@ -20,6 +23,8 @@ def bootstrap_sample(L, size):
 
 
 def balance_sample(y):
+    """balance each class num (down sample)
+    """
     idxes = []
     counter = Counter(y)
     N = counter.most_common()[-1][1]
@@ -29,6 +34,11 @@ def balance_sample(y):
         c_idx = c_idx[bootstrap_sample(L, N)].tolist()
         idxes += c_idx
     return idxes
+
+
+def get_most(y):
+    counter = Counter(y)
+    return counter.most_common()[0][0]
 
 
 def gini(x):
@@ -41,7 +51,7 @@ def gini(x):
     """
     count = Counter(x)
     n = len(x)
-    ps = [(x / n) ** 2 for k, x in count.items()]
+    ps = [(x / n) ** 2 for _, x in count.items()]
     gini_score = 1 - np.sum(ps)
     return gini_score
 
@@ -75,23 +85,22 @@ def filter_data(data, feat_types, split_x, origin_idx):
                 rm_list.append(idx)
                 continue
             for x in split_x[idx].copy():
+                # delete x0 which all x are less than it.
                 cond = data[:, idx] <= x
                 cond1 = np.logical_not(cond)
                 if np.all(cond) or np.all(cond1):
-                    # print(f"remove {x}, {idx}")
-                    # print(set(data[:, idx]))
                     split_x[idx].remove(x)
             if len(split_x[idx]) == 0:
                 rm_list.append(idx)
 
-    keep_idx = list(filter(lambda x: x not in rm_list, range(data.shape[1])))
+    keep_idx = [x for x in range(data.shape[1]) if x not in rm_list]
     keep_idx2idx = {k: i for i, k in enumerate(keep_idx)}
     data = data[:, keep_idx]
-    feat_map = {keep_idx2idx[n]: split_x[n]
-                for n in keep_idx if n in split_x}
+    splits = {keep_idx2idx[n]: split_x[n]
+              for n in keep_idx if n in split_x}
     feat_types = [feat_types[n] for n in keep_idx]
     origin_idx = {keep_idx2idx[n]: origin_idx[n] for n in keep_idx}
-    return data, feat_map, feat_types, origin_idx
+    return data, splits, feat_types, origin_idx
 
 
 def random_feat(len_feat, min_m):

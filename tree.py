@@ -9,7 +9,6 @@
 @Desc    :   CART tree implement
 '''
 import numpy as np
-import os
 from collections import Counter
 from multiprocessing import Queue
 from preprocess import find_split_x
@@ -17,7 +16,9 @@ from utils import (
     gini_score,
     filter_data,
     random_feat,
-    log
+    log,
+    get_most,
+    CATEGORICAL, NUMERICAL
 )
 
 
@@ -38,11 +39,8 @@ def tree_condition(x, x0, feat_type):
         x0 (int or float): condition right value.
         type (str): support "categorical", "numerical".
     """
-    assert feat_type in ["categorical", "numerical"]
-    if feat_type == "categorical":
-        return x == x0
-    else:
-        return x <= x0
+    assert feat_type in [CATEGORICAL, NUMERICAL]
+    return x == x0 if feat_type == CATEGORICAL else x <= x0
 
 
 class CartTree(object):
@@ -60,7 +58,7 @@ class CartTree(object):
         self.min_samples = min_samples
 
     @log
-    def fit(self, X, y, origin_idx, feat_type):
+    def fit(self, X, y, feat_type):
         """train
 
         Args:
@@ -68,9 +66,9 @@ class CartTree(object):
             y (np.ndarray).
             feat_type (dict): {idx: numerical or categorXical}
         """
+        origin_idx = {i: i for i in range(X.shape[1])}
         split_x = {idx: find_split_x(X[:, idx], y) for idx in range(X.shape[1])
-                   if feat_type[idx] == "numerical"}
-        # print(f"cart tree, data size: {X.shape}")
+                   if feat_type[idx] == NUMERICAL}
         self.root.fit(X, y, split_x, feat_type, origin_idx)
 
     def predict(self, x):
@@ -92,7 +90,6 @@ class CartTree(object):
         return labels
 
 
-
 class CartTreeNode(object):
     """Cart Decision Tree Algorithm.
 
@@ -100,7 +97,7 @@ class CartTreeNode(object):
         depth (int): this node's depth.
         true_t, false_t (CartTreeNode): child node.
         max_depth (int): max depth for tree.
-        min_samples (int): if samples < min_samples, regard node as leaf.
+        min_samples (int): min sample num for splitting.
         x0 (int or float): condition right value.
         feat_name (int).
         data_type (str): "numerical" or "categorical".
@@ -108,16 +105,14 @@ class CartTreeNode(object):
         is_leaf (bool).
         output (int): if is leaf, output is label, else None.
     """
-    def __init__(self, depth, max_depth, min_samples, min_m, father=None):
+    def __init__(self, depth, max_depth, min_samples, min_m):
         self.max_depth = max_depth
         self.depth = depth
         self.min_samples = min_samples
         self.min_m = min_m
         self.data_type = None
         self.x0 = None
-        self.feat_name = None
         self.is_leaf = False
-        self.father = father
     
     def fit(self, data, y, split_x, feat_type, origin_idx):
         """
@@ -134,11 +129,12 @@ class CartTreeNode(object):
         split_x = split_x.copy()
         feat_type = feat_type.copy()
         origin_idx = origin_idx.copy()
+
+        # test if reached stop condition
         if len(set(y)) == 1 or\
            len(y) <= self.min_samples or\
            self.depth >= self.max_depth:
-            counter = Counter(y)
-            self.output = counter.most_common()[0][0]
+            self.output = get_most(y)
             self.is_leaf = True
             return
 
@@ -147,16 +143,17 @@ class CartTreeNode(object):
             data, feat_type, split_x, origin_idx
         )
         if data.shape[1] == 0:
-            counter = Counter(y)
-            self.output = counter.most_common()[0][0]
+            self.output = get_most(y)
             self.is_leaf = True
             return
+
         # choose m feat
         feat_idx = random_feat(data.shape[1], self.min_m)
         # iter and find best feat and best value
         best_score = float('inf')
         best_feat = None
         best_value = None
+        best_true_idx = None
         for idx in feat_idx:
             x = data[:, idx]
             if feat_type[idx] == "categorical":
@@ -172,6 +169,7 @@ class CartTreeNode(object):
                         best_score = score
                         best_feat = idx
                         best_value = v
+                        best_true_idx = true_idx
             else:
                 xs = feat_map[idx]
                 for v in xs:
@@ -183,28 +181,22 @@ class CartTreeNode(object):
                         best_score = score
                         best_feat = idx
                         best_value = v
+                        best_true_idx = true_idx
         # update self info
         self.score = best_score
-        if best_feat is None:
-            print(data.shape)
-
         self.feat_col = origin_idx[best_feat]
         self.x0 = best_value
         self.data_type = feat_type[best_feat]
         # split
-        self.split(data, y, feat_map, feat_type, best_feat, origin_idx)
+        self.split(data, y, best_true_idx, feat_map,
+                   feat_type, best_feat, origin_idx)
 
-    def split(self, data, y, split_x, feat_types, col, origin_idx):
+    def split(self, data, y, true_idx, split_x, feat_types, col, origin_idx):
         """split
         """
-
-        x = data[:, col]
         true_split = split_x.copy()
         false_split = split_x.copy()
-        if feat_types[col] == "categorical":
-            true_idx = x == self.x0
-        else:
-            true_idx = x <= self.x0
+        if feat_types[col] == NUMERICAL:
             x0idx = split_x[col].index(self.x0)
             true_split[col] = split_x[col][: x0idx]
             false_split[col] = split_x[col][x0idx + 1:]
@@ -222,9 +214,9 @@ class CartTreeNode(object):
     
         # build new tree
         self.true_t = CartTreeNode(self.depth + 1, self.max_depth,
-                                   self.min_samples, self.min_m, self)
+                                   self.min_samples, self.min_m)
         self.true_t.fit(true_data, true_y, true_split, feat_types, origin_idx)
         self.false_t = CartTreeNode(self.depth + 1, self.max_depth,
-                                    self.min_samples, self.min_m, self)
+                                    self.min_samples, self.min_m)
         self.false_t.fit(false_data, false_y, false_split,
                          feat_types, origin_idx)

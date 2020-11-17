@@ -12,9 +12,9 @@ import os
 import pickle
 import numpy as np
 import json
-from multiprocessing import Queue, Process
-
-from scipy.sparse import data
+from tqdm import tqdm
+from multiprocessing import Process
+from sklearn.tree import DecisionTreeClassifier
 from tree import CartTree
 from utils import bootstrap_sample, balance_sample
 
@@ -32,14 +32,21 @@ class RandomForest(object):
         use_record (np.ndarray): size [num_samples, num_tree].
         X (np.ndarray): data.
         y (np.ndarray): labels.
-
+        balance (bool): whether to balance +1/-1 samples num.
+        use_sklearn (bool): test whether cart tree is working.
     """
-    def __init__(self, num_tree, max_depth, min_m, min_samples, balance=False):
+    def __init__(self, num_tree, max_depth, min_m, min_samples,
+                 balance=False, use_sklearn=False):
         self.num_tree = num_tree
         self.max_depth = max_depth
         self.min_m = min_m
         self.min_samples = min_samples
-        self.forests = [CartTree(max_depth, min_samples, min_m) for _ in range(num_tree)]
+        self.use_sklearn = use_sklearn
+        if not use_sklearn:
+            self.forests = [CartTree(max_depth, min_samples, min_m) for _ in range(num_tree)]
+        else:
+            self.forests = [DecisionTreeClassifier()
+                            for _ in range(num_tree)]
         self.oob = None
         self.balance = balance
 
@@ -60,19 +67,28 @@ class RandomForest(object):
             y = self.y[sample_idxs]
             # print(f"sample size: {X.shape}, {len(sample_idxs)}, {len(set(sample_idxs))}")
             self.use_record[sample_idxs, i] = True
-            self.forests[i].fit(X, y, origin_idx, feat_types)
+            if not self.use_sklearn:
+                self.forests[i].fit(X, y, origin_idx, feat_types)
+            else:
+                self.forests[i].fit(X, y)
 
         print("complete")
 
     def get_oob(self):
         if self.oob is None:
-            self.oob = []
-            for i in range(self.X.shape[0]):
-                record = np.logical_not(self.use_record[i])
+            self.oob = -np.ones(self.use_record.shape)
+            for i in tqdm(range(self.X.shape[1]), desc="get oob"):
+                record = np.logical_not(self.use_record[:, i])
                 idxes = np.where(record)[0]
-                pred_y = [self.forests[i].predict(self.X[i, :].reshape(1, -1))[0] for i in idxes]
+                pred_y = self.forests[i].predict(self.X[idxes, :])
                 pred_y = [int(k) for k in pred_y]
-                self.oob.append(pred_y)
+                for j, idx in enumerate(idxes):
+                    self.oob[idx, i] = pred_y[j]
+            oob = []
+            for i in range(self.oob.shape[0]):
+                pred_y = [int(x) for x in self.oob[i] if x != -1]
+                oob.append(pred_y)
+            self.oob = oob
         return self.oob
 
     def predict(self, X, vote=True):

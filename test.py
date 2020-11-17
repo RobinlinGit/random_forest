@@ -15,8 +15,10 @@ with open("processed.data", "rb") as f:
 y = pack['y']
 
 # %%
-with open("./result_keep/50-40-1-1.json", "r") as f:
+with open("sklearn_result.json", "r") as f:
     oob = json.load(f)
+
+# %%
 oob = [np.sum(x) / len(x) for x in oob]
 
 # %%

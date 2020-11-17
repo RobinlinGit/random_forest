@@ -14,12 +14,12 @@ import pandas as pd
 from time import time
 from tqdm import tqdm
 
-from utils import log
+from utils import log, CATEGORICAL, NUMERICAL
 
 
 # %%
 def categery_preprocess(column):
-    """map the feature data to [-1, 0, ..., M-1] int categories.
+    """map the feature data to [0, ..., M-1] int categories.
     Only for categorical data.
 
     Args:
@@ -33,13 +33,13 @@ def categery_preprocess(column):
     """
     feature2int = {}
     labels = set(column)
-    feature2int.update({label: i for i, label in enumerate(labels)})
+    feature2int = {label: i for i, label in enumerate(labels)}
     data = np.vectorize(feature2int.__getitem__)(column)
     int2feature = {v: k for k, v in feature2int.items()}
     return data, int2feature, feature2int
 
 
-def find_split_x(column, y):
+def numerical_split(column, y):
     """generate split point.
 
     Args:
@@ -94,13 +94,13 @@ def preprocess(df, y, feature_types):
             {feat_name: {"int2feat": v, "feat2int": v}} for categorical.
     """
     for _, v in feature_types.items():
-        assert v in ["numerical", "categorical"]
+        assert v in [NUMERICAL, CATEGORICAL]
     label_map = {}
     for feat_name, feat_type in feature_types.items():
         column = df[feat_name].values
         # numerical process
-        if feat_type == "numerical":
-            split_x = find_split_x(column, y)
+        if feat_type == NUMERICAL:
+            split_x = numerical_split(column, y)
             label_map[feat_name] = split_x
         # categorical process
         else:
@@ -112,12 +112,12 @@ def preprocess(df, y, feature_types):
     return data, feat_names, label_map
 
 
-def format_data(data, feat_names, feat_map, feat_type):
+def format_info(feat_names, feat_map, feat_type):
     origin_idx = {i: i for i in range(len(feat_names))}
     split_x = {
         i: feat_map[feat_names[i]]
         for i in range(len(feat_names))
-        if feat_type[feat_names[i]] == "numerical"
+        if feat_type[feat_names[i]] == NUMERICAL
     }
     feat_types = {i: feat_type[feat_names[i]] for i in origin_idx}
     return split_x, feat_types, origin_idx
